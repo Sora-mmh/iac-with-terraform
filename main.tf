@@ -30,6 +30,8 @@ variable my_ip {}
 variable instance_type {}
 # variable public_key {}
 variable public_key_location {}
+variable private_key_location {}
+
 
 resource "aws_vpc" "montapp-vpc" { 
     cidr_block = var.vpc_cidr_block
@@ -153,6 +155,54 @@ resource "aws_instance" "montapp-server" {
 
     associate_public_ip_address = true
     key_name = aws_key_pair.iac-server-tf.key_name #"iac-server"
+    
+    ### write script here 
+    # user_data = <<EOF
+    #                 #!/bin/bash
+    #                 sudo yum update -y && sudo yum install -y docker
+    #                 sudo systemctl start docker
+    #                 sudo usermod -aG docker ec2-user
+    #                 docker run -p 8080:80 nginx
+    #             EOF
+
+    ###  or .sh script here
+    # user_data = file("entry-script.sh") (alternative 1)
+
+    user_data_replace_on_change = true
+
+    ### Connect to the server ...
+    connection {
+        type = "ssh"
+        host = self.public_ip
+        user = "ec2-user"
+        private_key = file(var.private_key_location)
+    }
+    ### ... To execute the commands (alternative 2) through provisioners (LAST RESORT !!!!!!!!)
+    ### provisioner to copy the file on the remote file
+    provisioner "file" {
+        source = "entry-script.sh"
+        destination = "/home/ec2-user/entry-script-on-ec2.sh"
+    }
+
+    ### provisioner to execute remotely the commands/.sh script
+    provisioner "remote-exec" {
+        ### Option 1
+        # inline = [
+        #     "export ENV=dev",
+        #     "mkdir newdir"
+        # ]
+        ### Option 2 (the script must exit on the remote server) with remote path
+        # inline = [
+        #     "/home/ec2-user/entry-script-on-ec2.sh"
+        # ]
+        ### .................................................... with local path
+        script = "entry-script.sh"
+    }
+
+    ### execute cmds locally
+    provisioner "local-exec" {
+        command = "echo ${self.public_ip} > ip_output.txt"
+    }
 
     tags = {
         Name: "${var.env_prefix}-server"
